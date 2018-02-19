@@ -62,3 +62,47 @@ sig TimeSlot {
    // Check having enough messages available for sending.
 	needsToSend: Node -> Msg
 }
+
+fun MsgsSentOnTimeSlot[t: TimeSlot]: set Msg { t.sent[Node] }
+fun MsgsReadOnTimeSlot[t: TimeSlot]: set Msg { t.read[Node] }
+
+fact RulesOfCANBus {
+	// Life cycle of message(Not always for TimeSlot):	available-> sent, inChannel-> read-> not inChannel
+	// inChannel means it's ready for sending to channel but it can be send in next TimeSlot
+	Msg in TimeSlot.sent[Node]							// all messages must be sent
+	read in inChannel									// Read Only if messages is inChannel
+
+	no ord/first.inChannel[Node]						// At the beginning, no messages have been sent yet
+
+	// Messages sent on a given TimeSlot become inChannel on the subsequent TimeSlot.
+	all pre: TimeSlot - ord/last | let post = ord/next[pre] | {
+		// Messages sent on this TimeSlot are no longer available on subsequent TimeSlot
+        post.available = pre.available - MsgsSentOnTimeSlot[pre]
+     }
+
+	all t: TimeSlot | {
+		// Messages sent on a TimeSlot are taken from the pool of available (not-yet-sent) message atoms
+		MsgsSentOnTimeSlot[t] in t.available
+
+		// Timestamps are correct
+		MsgsSentOnTimeSlot[t].sentOn in t
+		MsgsReadOnTimeSlot[t].readOn[Node] in t
+
+		// The only new message atoms are those sent by nodes
+		MsgsSentOnTimeSlot[t] = t.sent[Node]
+
+		all n: Node, m: Msg | m.readOn[n] = t => m in t.read[n]
+		// Return addresses are correct
+		all n: Node | t.sent[n].state.from in n
+
+		// Messages sent to a node on a TimeSlot become inChannel on some subseqent TimeSlot,
+		// and permanently stop being inChannel on the TimeSlot after that node reads the message
+		all n: Node, m: Msg | {
+			// Message starts being inChannel no earlier than it is sent;
+			// Only messages sent to this node are inChannel.
+			(m in t.inChannel[n] => (n in m.state.to && m.sentOn in ord/prevs[t]))
+			// Message permanently stops being inChannel immediately after being read
+			(m in t.read[n] => m !in ord/nexts[t].inChannel[n])
+		}
+	}
+}
