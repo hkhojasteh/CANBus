@@ -106,3 +106,44 @@ fact RulesOfCANBus {
 		}
 	}
 }
+
+fact FrameConfiguration {
+	all pre: TimeSlot - ord/last | let post = ord/next[pre] | {
+		// Overload: If node get overload message, does not send the message at next TimeSlot (BUS Busy).
+		#pre.read.Msg_Overload > 0 => #post.sent.Msg = 0
+		// Remote: Send data frame after get remote frame
+		all n:Node | pre.read[n] in Msg_Remote && post.sent[n] in Msg_Data
+		// Error: Send again data to receiver if get error frame
+		all n:Node | pre.read[n] in Msg_Error &&
+							post.sent[n] in Msg_Data &&
+							post.sent[n].state.to = pre.read[n].state.to
+     }
+}
+
+fun MsgsLiveOnTimeSlot[t: TimeSlot]: set Msg {
+	Msg - { future: Msg | future.sentOn in ord/nexts[t] }
+           - { past: Msg | all n: past.state.to | past.readOn[n] in ord/prevs[t] }
+}
+
+pred ReadInOrder  {
+    // This function ensures that messages are read in order.
+
+    // For all pairs of nodes and messages sent from n1 to n2
+	all n1, n2: Node | all m1, m2: Msg | {
+		m1.state.from = n1
+		m2.state.from = n1
+		m1.state.to = n2
+		m2.state.to = n2
+	} => {
+		// If both m1 and m2 are read by n2, and n2 reads m1 before m2,
+		//	     then m1 must have been sent before m2
+		(some m1.readOn[n2] && some m2.readOn[n2] &&
+			m1.readOn[n2] in ord/prevs[m2.readOn[n2]]) =>
+			ord/lte[m1.sentOn, m2.sentOn]
+		}
+}
+
+pred NoMessageShortage {
+	// No shortage of messages in the available message pool during the trace
+	all t: TimeSlot - ord/last | (sum n: Node | # t.needsToSend[n]) =< # t.available
+}
