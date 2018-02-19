@@ -147,3 +147,22 @@ pred NoMessageShortage {
 	// No shortage of messages in the available message pool during the trace
 	all t: TimeSlot - ord/last | (sum n: Node | # t.needsToSend[n]) =< # t.available
 }
+
+pred NumOfState  {
+   #Node > 1
+}
+
+pred OutOfOrder  {
+   ! ReadInOrder
+   #Msg = 3
+}
+
+// Run SomeState for 2 expect 1
+// Run OutOfOrder for 4 expect 1
+
+run NumOfState for 3
+run OutOfOrder for 4
+
+// Just for better visualization
+fun FROM: Msg -> Node {{m: Msg, n: Node | n in m.state.from}}
+fun TO: Msg -> Node {{m: Msg, n: Node | n in m.state.to}}
